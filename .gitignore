@@ -2,3 +2,6 @@ test
 dataset
 models
 template
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+__pycache__
