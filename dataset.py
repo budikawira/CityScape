@@ -14,7 +14,7 @@ data_transforms = A.Compose([
 from torch.utils.data import Dataset
 
 class CityScapes(Dataset):
-    def __init__(self, img_folder, mask_folder, files_list):
+    def __init__(self, img_folder, mask_folder, files_list, data_transforms=data_transforms):
         super().__init__()
         self.files_list = files_list
         self.img_folder = img_folder

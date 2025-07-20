@@ -134,16 +134,32 @@ class DiceCrossEntropyLoss(nn.Module):
 
         return self.dice_weight * dice_loss + self.ce_weight * ce_loss
 
+class PolyLR:
+    def __init__(self, optimizer, max_iters, power=0.9, base_lr=1e-3):
+        self.optimizer = optimizer
+        self.max_iters = max_iters
+        self.power = power
+        self.base_lr = base_lr
+        self.iter = 0
 
-def train_engine(dataloader, model, loss_fn, optim, scaler=torch.cuda.amp.GradScaler()):
+    def step(self):
+        lr = self.base_lr * (1 - self.iter / self.max_iters) ** self.power
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = lr
+        self.iter += 1
+
+    def get_lr(self):
+        return self.optimizer.param_groups[0]['lr']
+
+def train_engine(device, dataloader, model, loss_fn, optim, scaler=torch.cuda.amp.GradScaler()):
     model.train()
     total_loss = 0.0
     
     loop = tqdm(dataloader)
     for data, targets in loop:
         # Move data to GPU
-        data = data.to('cuda')
-        targets = targets.to('cuda')
+        data = data.to(device)
+        targets = targets.to(device)
         
         # Convert targets to long integers (required for CrossEntropyLoss)
         targets = targets.long()
@@ -153,7 +169,7 @@ def train_engine(dataloader, model, loss_fn, optim, scaler=torch.cuda.amp.GradSc
         assert targets.max() < model.out_channels, f"Target values exceed number of classes ({model.out_channels})"
 
         # Forward pass with mixed precision
-        with torch.amp.autocast(device_type='cuda'):
+        with torch.amp.autocast(device_type=device.type):
             predictions = model(data)
             loss = loss_fn(predictions, targets)
 
@@ -170,14 +186,14 @@ def train_engine(dataloader, model, loss_fn, optim, scaler=torch.cuda.amp.GradSc
 
     return total_loss / len(dataloader)
 
-def val_engine(dataloader, model, loss_fn):
+def val_engine(device, dataloader, model, loss_fn):
     model.eval()
     loss_one_step = 0
     loop = tqdm(dataloader)
 
     for data, targets in loop:
-        data = data.to('cuda')
-        targets = targets.float().to(device="cuda")
+        data = data.to(device)
+        targets = targets.float().to(device=device)
         # Convert targets to long integers (required for CrossEntropyLoss)
         targets = targets.long()
         with torch.no_grad():
@@ -190,8 +206,8 @@ def val_engine(dataloader, model, loss_fn):
 
     return loss_one_step / len(dataloader)
 
-def train(train_dataloaders, val_dataloaders, model, loss_fn, optim, num_epochs, log_freq=10, save_best_model=False, 
-          best_model_name='best_model.pth', last_model_name='last_model.pth', save_path='./'):
+def train(device, train_dataloaders, val_dataloaders, model, loss_fn, optim, num_epochs, log_freq=10, save_best_model=False, 
+          best_model_name='best_model.pth', last_model_name='last_model.pth', save_path='./', scheduler=None):
     """
     Train the model for a given number of epochs.
     :param train_dataloaders: A dictionary of dataloaders for training and validation.
@@ -205,6 +221,7 @@ def train(train_dataloaders, val_dataloaders, model, loss_fn, optim, num_epochs,
     """
     best_model = None
     best_val_loss = float('inf')
+    best_epoch = 0
     since = time.time()
     logs = []
     # best_model_name = os.path.join('drive/MyDrive/UNet/ckpt_save', best_model_name)
@@ -214,11 +231,18 @@ def train(train_dataloaders, val_dataloaders, model, loss_fn, optim, num_epochs,
     last_model_name = os.path.join(save_path, last_model_name)
 
     for epoch in range(num_epochs):
-        train_loss = train_engine(train_dataloaders, model, loss_fn, optim)
-        val_loss = val_engine(val_dataloaders, model, loss_fn)
+        train_loss = train_engine(device, train_dataloaders, model, loss_fn, optim)
+        val_loss = val_engine(device, val_dataloaders, model, loss_fn)
+
+        if scheduler != None:
+            # scheduler for val_loss based, ex: ReduceLROnPlateau
+            scheduler.step(val_loss)
+            # scheduler for epoch based, ex: PolyLRScheduler
+            # scheduler.step(epoch)
 
         is_best = False
         if val_loss < best_val_loss:
+            best_epoch = epoch
             best_val_loss = val_loss
             if save_best_model:
                 best_model = model
@@ -229,8 +253,12 @@ def train(train_dataloaders, val_dataloaders, model, loss_fn, optim, num_epochs,
             torch.save(model.state_dict(), last_model_name)
             
         if epoch % log_freq == 0:
-            print('Epoch {}/{}'.format(epoch, num_epochs - 1))
-            print('-' * 10)
+            if (scheduler != None):
+                current_lr = scheduler.optimizer.param_groups[0]['lr']
+            else:
+                current_lr = optim.param_groups[0]['lr']
+            print(f'Epoch {epoch}/{num_epochs - 1}, LR: {current_lr:.6f}')
+            print('-' * 30)
             print(f'Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
             if is_best:
                 best_val_loss = val_loss
@@ -245,7 +273,7 @@ def train(train_dataloaders, val_dataloaders, model, loss_fn, optim, num_epochs,
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60))
-    print('Best test (smallest validation lost): {:4f}'.format(best_val_loss))
+    print(f'Best test (smallest validation lost): {best_val_loss:4f}, Best epoch: {best_epoch}')
     
 
     return model, logs
