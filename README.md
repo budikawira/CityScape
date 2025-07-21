@@ -15,6 +15,11 @@ The project is organized as four sequential Jupyter Notebooks:
 
 > ⚠️ **Note:** Please run the notebooks in sequence from `001` to `004`.
 
+--
+## 📂 Dataset
+
+Training and validation is using subset of cityscape dataset. It can be downloaded from this link: <a href="https://drive.google.com/drive/folders/1cHsmb9fLaIch003fqUrAaI9-tf4od33S?usp=drive_link">Download</a>
+
 ---
 
 ## 🏗️ Model Architectures
