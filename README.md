@@ -1,4 +1,4 @@
-# CityScape Semantic Segmentation
+# CityScapes Semantic Segmentation
 
 This repository contains a complete semantic segmentation pipeline for the [Cityscapes Dataset](https://www.cityscapes-dataset.com/), using two popular deep learning architectures: **FCN8s** and **UNet**. The project includes dataset exploration, training with multiple loss functions, and final evaluation.
 
